@@ -22,7 +22,7 @@ members = [
 ]
 
 [features]
-default = []
+default = ["soapy"]
 audio = ["dep:cpal", "dep:hound", "dep:rodio"]
 flow_scheduler = []
 lttng = ["dep:lttng-ust", "dep:lttng-ust-generate"]
@@ -119,6 +119,7 @@ async-net = "1.5.0"
 async-task = "4.0.3"
 async-tungstenite = "0.17.0"
 axum = "0.5.5"
+axum-macros = "0.2.3"
 blocking = "1.1"
 concurrent-queue = "1.2.2"
 core_affinity = "0.5.10"

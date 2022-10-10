@@ -1,13 +1,23 @@
+use async_io::block_on;
+use axum::extract::Extension;
+use axum::response::Html;
+use axum::routing::get;
+use axum::Router;
+use axum_macros::debug_handler;
+use futuresdr_pmt::Pmt;
+use log::debug;
+use num_complex::Complex;
+use std::sync::Arc;
+use std::sync::Mutex;
+
 use futuresdr::anyhow::Result;
 use futuresdr::blocks::NullSink;
 use futuresdr::blocks::SoapySinkBuilder;
 use futuresdr::blocks::SoapySourceBuilder;
 use futuresdr::blocks::Source;
 use futuresdr::runtime::Flowgraph;
+use futuresdr::runtime::FlowgraphHandle;
 use futuresdr::runtime::Runtime;
-
-use log::debug;
-use num_complex::Complex;
 
 /// Example to illustrate the use of multiple Soapy channels on a single device
 ///
@@ -18,6 +28,7 @@ fn main() -> Result<()> {
     futuresdr::runtime::init(); //For logging
 
     let mut fg = Flowgraph::new();
+    let arc_opt_fg_handle: Arc<Mutex<Option<FlowgraphHandle>>> = Arc::new(Mutex::new(None));
 
     // Create a Soapy device to be shared by all the channels
     let soapy_dev = soapysdr::Device::new("driver=uhd")?;
@@ -40,7 +51,7 @@ fn main() -> Result<()> {
         .build();
 
     let soapy_snk = SoapySinkBuilder::new()
-        .device(soapy_dev)
+        .device(soapy_dev.clone())
         .channel(0)
         .channel(1)
         .freq(100e6)
@@ -61,6 +72,69 @@ fn main() -> Result<()> {
     fg.connect_stream(zero_src, "out", soapy_snk, "in1")?;
     fg.connect_stream(zero_src, "out", soapy_snk, "in2")?;
 
-    Runtime::new().run(fg)?;
+    let router = Router::new()
+        .route("/my_route/", get(my_route))
+        .layer(Extension((arc_opt_fg_handle.clone(), soapy_dev.clone())));
+
+    fg.set_custom_routes(router);
+
+    println!("Visit http://127.0.0.1:1337/my_route/");
+    let (task_handle, fgh) = block_on(Runtime::new().start(fg));
+    {
+        let mut opt_fg_handle = arc_opt_fg_handle.lock().unwrap();
+        *opt_fg_handle = Some(fgh.clone());
+    }
+    block_on(task_handle)?;
+
+    // Runtime::new().run(fg)?;
     Ok(())
+}
+
+#[debug_handler]
+async fn my_route(
+    Extension((arc_opt_fgh, dev)): Extension<(
+        Arc<Mutex<Option<FlowgraphHandle>>>,
+        soapysdr::Device,
+    )>,
+) -> Html<String> {
+    //Note: need to clone out of mutext guard, which is not `Send`, which
+    //breaks handler due to use of .await (Axum thing)
+    let mut opt_fgh = arc_opt_fgh.lock().unwrap().clone();
+
+    let dstr = if let Some(ref mut fgh) = opt_fgh {
+        format!("{:#?}", fgh.description().await.unwrap())
+        // format!("Test")
+    } else {
+        "".to_owned()
+    };
+
+    //access soapy dev
+    let freq = dev.frequency(soapysdr::Direction::Rx, 0).unwrap();
+    let fr = dev.frequency_range(soapysdr::Direction::Rx, 0).unwrap();
+
+    //Call FG
+    if let Some(ref mut fgh) = opt_fgh {
+        fgh.call(0, 0, Pmt::F64(200e6)).await.unwrap();
+    }
+
+    Html(format!(
+        r#"
+    <html>
+        <head>
+            <meta charset='utf-8' />
+            <title>FutureSDR</title>
+        </head>
+        <body>
+            <h2>Current freq:</h2> 
+            <pre>{}</pre>
+            <h2>Soapy freq range:</h2> 
+            <pre>{:?}</pre>
+            <h1>My Custom Route</h1>
+            <h2>Flowgraph description:</h2> 
+            <pre>{}</pre>
+        </body>
+    </html>
+    "#,
+        freq, fr, dstr
+    ))
 }
