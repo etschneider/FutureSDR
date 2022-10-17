@@ -178,13 +178,20 @@ mod oscillator;
 pub use oscillator::Oscillator;
 
 #[cfg(feature = "soapy")]
+pub mod soapy;
+#[cfg(feature = "soapy")]
+pub use soapy::{SoapySink, SoapySinkBuilder, SoapySource, SoapySourceBuilder};
+
+#[cfg(feature = "soapy")]
 pub(self) mod soapy_snk;
 #[cfg(feature = "soapy")]
-pub use soapy_snk::{SoapySink, SoapySinkBuilder};
+#[deprecated]
+pub use soapy_snk::{SoapySink as OldSoapySink, SoapySinkBuilder as OldSoapySinkBuilder};
 #[cfg(feature = "soapy")]
 mod soapy_src;
 #[cfg(feature = "soapy")]
-pub use soapy_src::{SoapySource, SoapySourceBuilder};
+#[deprecated]
+pub use soapy_src::{SoapySource as OldSoapySource, SoapySourceBuilder as OldSoapySourceBuilder};
 
 mod selector;
 pub use selector::DropPolicy as SelectorDropPolicy;
