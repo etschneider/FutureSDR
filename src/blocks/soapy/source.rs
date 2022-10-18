@@ -58,7 +58,7 @@ impl SoapySource {
         _meta: &'a mut BlockMeta,
         p: Pmt,
     ) -> Pin<Box<dyn Future<Output = Result<Pmt>> + Send + 'a>> {
-        async move { self.base_cmd_handler(p, &SoapyConfigDir::Rx) }.boxed()
+        async move { self.base_cmd_handler(p, &SoapyDirection::Rx) }.boxed()
     }
 
     // For backwards compatibility, can only set channel 0
@@ -69,7 +69,7 @@ impl SoapySource {
         _meta: &'a mut BlockMeta,
         p: Pmt,
     ) -> Pin<Box<dyn Future<Output = Result<Pmt>> + Send + 'a>> {
-        async move { self.set_freq(p, &SoapyConfigDir::Rx) }.boxed()
+        async move { self.set_freq(p, &SoapyDirection::Rx) }.boxed()
     }
 
     // For backwards compatibility, can only set channel 0
@@ -80,7 +80,7 @@ impl SoapySource {
         _meta: &'a mut BlockMeta,
         p: Pmt,
     ) -> Pin<Box<dyn Future<Output = Result<Pmt>> + Send + 'a>> {
-        async move { self.set_sample_rate(p, &SoapyConfigDir::Rx) }.boxed()
+        async move { self.set_sample_rate(p, &SoapyDirection::Rx) }.boxed()
     }
 }
 
@@ -122,7 +122,7 @@ impl Kernel for SoapySource {
     ) -> Result<()> {
         let _ = super::SOAPY_INIT.lock();
         soapysdr::configure_logging();
-        if let Err(e) = self.apply_init_config(&SoapyConfigDir::Rx) {
+        if let Err(e) = self.apply_init_config(&SoapyDirection::Rx) {
             warn!("SoapySource::new() apply_init_config error: {}", e);
         }
 
@@ -185,17 +185,13 @@ pub type SoapySourceBuilder = SoapyDevBuilder<SoapySource>;
 
 impl SoapyDevBuilder<SoapySource> {
     pub fn new() -> Self {
-        let mut s = Self {
+        Self {
             init_cfg: SoapyInitConfig::default(),
-            cfg: SoapyConfig::default(),
             _phantom: PhantomData,
-        };
-        s.cfg.dir = SoapyConfigDir::Rx;
-        s
+        }
     }
 
-    pub fn build(mut self) -> Block {
-        self.init_cfg.config.0.push(self.cfg.clone()); //FIXME: temporary hack
+    pub fn build(self) -> Block {
         SoapySource::new(self.init_cfg)
     }
 }

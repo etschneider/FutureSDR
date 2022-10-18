@@ -56,7 +56,7 @@ impl fmt::Debug for SoapyDevSpec {
 /// access to both Tx and Rx direction simultaneously to perform its
 /// task.
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub enum SoapyConfigDir {
+pub enum SoapyDirection {
     /// Use the direction of the block being configured.
     ///
     /// [`SoapySource`]: `Rx`
@@ -65,62 +65,64 @@ pub enum SoapyConfigDir {
     Rx,
     Tx,
     Both,
+    None,
 }
 
-impl SoapyConfigDir {
-    pub fn is_rx(&self) -> bool {
+impl SoapyDirection {
+    pub fn is_rx(&self, default: &Self) -> bool {
         match self {
-            SoapyConfigDir::Rx => true,
-            SoapyConfigDir::Both => true,
+            Self::Default => default.is_rx(&Self::None),
+            Self::Rx => true,
+            Self::Both => true,
             _ => false,
         }
     }
 
-    pub fn is_tx(&self) -> bool {
+    pub fn is_tx(&self, default: &Self) -> bool {
         match self {
-            SoapyConfigDir::Tx => true,
-            SoapyConfigDir::Both => true,
+            Self::Default => default.is_tx(&Self::None),
+            Self::Tx => true,
+            Self::Both => true,
             _ => false,
         }
     }
 }
 
-impl Default for SoapyConfigDir {
+impl Default for SoapyDirection {
     fn default() -> Self {
         Self::Default
     }
 }
 
-/// Runtime configuration settings
+#[non_exhaustive]
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum SoapyConfigItem {
+    Direction(SoapyDirection),
+    /// Channel(None) applies to all enabled channels
+    Channel(Option<usize>),
+    Antenna(String),
+    Bandwidth(f64),
+    Freq(f64),
+    Gain(f64),
+    SampleRate(f64),
+}
+
 #[derive(Clone, Default, Debug, Serialize, Deserialize)]
-pub struct SoapyConfig {
-    /// Specifies the channel that the the configuration apply to.
-    ///
-    /// If None, the settings will be applied to all channels.
-    pub chan: Option<usize>,
+pub struct SoapyConfig(pub Vec<SoapyConfigItem>);
 
-    /// Channel direction of settings
-    ///
-    /// Normally a source or sink block will set this internally if the default value
-    /// of [`SoapyConfigDir::Default`] is set.  
-    pub dir: SoapyConfigDir,
+impl SoapyConfig {
+    pub fn new() -> Self {
+        Self::default()
+    }
 
-    /// See [`soapysdr::Device::set_sample_rate()`]
-    pub sample_rate: Option<f64>,
+    pub fn push(&mut self, ci: SoapyConfigItem) -> &mut Self {
+        self.0.push(ci);
+        self
+    }
 
-    /// See [`soapysdr::Device::set_frequency()`]
-    pub freq: Option<f64>,
-
-    /// See [`soapysdr::Device::set_gain()`]
-    pub gain: Option<f64>,
-
-    /// See [`soapysdr::Device::set_antenna()`]
-    pub antenna: Option<String>,
-
-    /// See [`soapysdr::Device::set_bandwidth()`]
-    pub bandwidth: Option<f64>,
-    //
-    // And many more....
+    pub fn to_pmt(&self) -> Pmt {
+        Pmt::Any(Box::new(self.clone()))
+    }
 }
 
 /// Convert a Pmt into a [`SoapyConfig`] type.
@@ -135,6 +137,8 @@ impl TryFrom<Pmt> for SoapyConfig {
     type Error = anyhow::Error;
 
     fn try_from(pmt: Pmt) -> Result<Self, Self::Error> {
+        use SoapyConfigItem as SCI;
+
         match pmt {
             Pmt::Any(a) => {
                 if let Some(cfg) = a.downcast_ref::<Self>() {
@@ -150,67 +154,30 @@ impl TryFrom<Pmt> for SoapyConfig {
                         // We could add entries to support multiple Pmt types per name,
                         // but it is probably best to make the accepted type correspond
                         // to the actual SoapySDR API.
-                        ("antenna", Pmt::String(v)) => cfg.antenna = Some(v.to_owned()),
-                        ("bandwidth", p) => cfg.bandwidth = Some(pmt_to_f64(&p)?),
-                        ("chan", p) => cfg.chan = Some(pmt_to_usize(&p)?),
-                        ("freq", p) => cfg.freq = Some(pmt_to_f64(&p)?),
-                        ("gain", p) => cfg.gain = Some(pmt_to_f64(&p)?),
-                        ("rate", p) => cfg.sample_rate = Some(pmt_to_f64(&p)?),
+                        ("antenna", Pmt::String(v)) => {
+                            cfg.push(SCI::Antenna(v.to_owned()));
+                        }
+                        ("bandwidth", p) => {
+                            cfg.push(SCI::Bandwidth(pmt_to_f64(&p)?));
+                        }
+                        ("chan", p) => {
+                            cfg.push(SCI::Channel(Some(pmt_to_usize(&p)?)));
+                        }
+                        ("freq", p) => {
+                            cfg.push(SCI::Freq(pmt_to_f64(&p)?));
+                        }
+                        ("gain", p) => {
+                            cfg.push(SCI::Gain(pmt_to_f64(&p)?));
+                        }
+                        ("rate", p) => {
+                            cfg.push(SCI::SampleRate(pmt_to_f64(&p)?));
+                        }
                         // By default, log a warning but otherwise ignore
                         _ => warn!("unrecognized name/value pair: {}", n),
                     }
                 }
                 Ok(cfg)
             }
-            _ => bail!("cannot convert this PMT"),
-        }
-    }
-}
-
-/// Multiple [`SoapyConfig`] structs.
-///
-/// A [`SoapyConfig`] struct only represent settings for a single channel type.
-/// This type allows for different settings for different channels.
-#[derive(Clone, Default, Debug, Serialize, Deserialize)]
-pub struct SoapyMultiConfig(pub Vec<SoapyConfig>);
-
-/// Convert a Pmt into a [`SoapyMultiConfig`] type.
-///
-/// [`Pmt::Any(SoapyMultiConfig)`]: This simply downcasts and thus exposes all supported
-/// configuration options. This is the preferred type.
-///
-/// [`Pmt::VecPmt`]: this attempt to convert each element using [`SoapyConfig::try_from(Pmt)`].
-impl TryFrom<Pmt> for SoapyMultiConfig {
-    type Error = anyhow::Error;
-
-    fn try_from(pmt: Pmt) -> Result<Self, Self::Error> {
-        match pmt {
-            Pmt::Any(a) => {
-                if let Some(mcfg) = a.downcast_ref::<Self>() {
-                    Ok(mcfg.clone())
-                } else if let Some(cfg) = a.downcast_ref::<SoapyConfig>() {
-                    //Accept a single SoapyConfig as a convenience
-                    Ok(Self(vec![cfg.clone()]))
-                } else {
-                    bail!("downcast failed")
-                }
-            }
-            Pmt::VecPmt(v) => {
-                let mut mcfg = Self::default();
-                for p in v {
-                    match SoapyConfig::try_from(p) {
-                        Ok(cfg) => mcfg.0.push(cfg.clone()),
-                        Err(e) => bail!(e),
-                    }
-                }
-                Ok(mcfg)
-            }
-            Pmt::MapStrPmt(_) => {
-                //Accept a single SoapyConfig as a convenience
-                let cfg = SoapyConfig::try_from(pmt)?;
-                Ok(Self(vec![cfg]))
-            }
-            // Pmt::Any(a) => {}
             _ => bail!("cannot convert this PMT"),
         }
     }
@@ -234,5 +201,5 @@ pub struct SoapyInitConfig {
     pub activate_time: Option<i64>,
 
     /// Initial values of runtime modifiable settings.
-    pub config: SoapyMultiConfig,
+    pub config: SoapyConfig,
 }

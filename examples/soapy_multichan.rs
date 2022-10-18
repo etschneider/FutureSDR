@@ -112,35 +112,30 @@ fn main() -> Result<()> {
         info!("retval: {:?}", rv);
     });
 
+    use SoapyConfigItem as SCI;
+
     info!("cmd port: config via Pmt::Any(SoapyConfig)");
     block_on(async {
-        let pmt = Pmt::Any(Box::new(SoapyConfig {
-            freq: Some(103e6),
-            gain: Some(0.0),
-            ..SoapyConfig::default()
-        }));
+        let pmt = SoapyConfig::new()
+            .push(SCI::Freq(90e6))
+            .push(SCI::Gain(0.0))
+            .to_pmt();
         let rv = fg_handle.callback(soapy_snk, 2, pmt).await;
         info!("retval: {:?}", rv);
     });
 
-    info!("cmd port: config via Pmt::Any(SoapyMultiConfig)");
+    info!("cmd port: config via Pmt::Any(SoapyConfig) w/ chan/dir spec");
     block_on(async {
-        let pmt = Pmt::Any(Box::new(SoapyMultiConfig(vec![
-            SoapyConfig {
-                chan: Some(0),
-                dir: SoapyConfigDir::Both,
-                freq: Some(104e6),
-                gain: Some(0.0),
-                ..SoapyConfig::default()
-            },
-            SoapyConfig {
-                chan: Some(1),
-                dir: SoapyConfigDir::Both,
-                freq: Some(105e6),
-                gain: Some(0.0),
-                ..SoapyConfig::default()
-            },
-        ])));
+        let pmt = SoapyConfig::new()
+            .push(SCI::Channel(Some(0)))
+            .push(SCI::Direction(SoapyDirection::Both))
+            .push(SCI::Freq(91e6))
+            .push(SCI::Gain(0.0))
+            .push(SCI::Channel(Some(1)))
+            .push(SCI::Direction(SoapyDirection::Both))
+            .push(SCI::Freq(92e6))
+            .push(SCI::Gain(0.0))
+            .to_pmt();
         let rv = fg_handle.callback(soapy_snk, 2, pmt).await;
         info!("retval: {:?}", rv);
     });

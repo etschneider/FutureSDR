@@ -62,7 +62,7 @@ impl SoapySink {
         _meta: &'a mut BlockMeta,
         p: Pmt,
     ) -> Pin<Box<dyn Future<Output = Result<Pmt>> + Send + 'a>> {
-        async move { self.base_cmd_handler(p, &SoapyConfigDir::Tx) }.boxed()
+        async move { self.base_cmd_handler(p, &SoapyDirection::Tx) }.boxed()
     }
 
     // For backwards compatibility, can only set channel 0
@@ -73,7 +73,7 @@ impl SoapySink {
         _meta: &'a mut BlockMeta,
         p: Pmt,
     ) -> Pin<Box<dyn Future<Output = Result<Pmt>> + Send + 'a>> {
-        async move { self.set_freq(p, &SoapyConfigDir::Tx) }.boxed()
+        async move { self.set_freq(p, &SoapyDirection::Tx) }.boxed()
     }
 
     // For backwards compatibility, can only set channel 0
@@ -84,7 +84,7 @@ impl SoapySink {
         _meta: &'a mut BlockMeta,
         p: Pmt,
     ) -> Pin<Box<dyn Future<Output = Result<Pmt>> + Send + 'a>> {
-        async move { self.set_sample_rate(p, &SoapyConfigDir::Tx) }.boxed()
+        async move { self.set_sample_rate(p, &SoapyDirection::Tx) }.boxed()
     }
 }
 
@@ -136,7 +136,7 @@ impl Kernel for SoapySink {
     ) -> Result<()> {
         let _ = super::SOAPY_INIT.lock();
         soapysdr::configure_logging();
-        if let Err(e) = self.apply_init_config(&SoapyConfigDir::Tx) {
+        if let Err(e) = self.apply_init_config(&SoapyDirection::Tx) {
             warn!("SoapySink::new() apply_init_config error: {}", e);
         }
 
@@ -196,17 +196,13 @@ pub type SoapySinkBuilder = SoapyDevBuilder<SoapySink>;
 
 impl SoapyDevBuilder<SoapySink> {
     pub fn new() -> Self {
-        let mut s = Self {
+        Self {
             init_cfg: SoapyInitConfig::default(),
-            cfg: SoapyConfig::default(),
             _phantom: PhantomData,
-        };
-        s.cfg.dir = SoapyConfigDir::Tx;
-        s
+        }
     }
 
-    pub fn build(mut self) -> Block {
-        self.init_cfg.config.0.push(self.cfg.clone()); //FIXME: temporary hack
+    pub fn build(self) -> Block {
         SoapySink::new(self.init_cfg)
     }
 }
